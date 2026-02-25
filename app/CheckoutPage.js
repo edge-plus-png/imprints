@@ -252,9 +252,53 @@ export default function CheckoutPage({
           boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
         }}
       >
-        <h1 style={{ fontSize: 18, margin: "0 0 12px", fontWeight: 600 }}>
-          Imprints – Secure card payment
-        </h1>
+        <div
+          style={{
+            marginBottom: 12,
+            borderRadius: 10,
+            background: "#3a3633",
+            color: "#ffffff",
+            padding: "16px 14px 14px",
+            textAlign: "center",
+          }}
+        >
+          <img
+            src="/imprints-logo.png"
+            alt="Imprints"
+            style={{
+              width: 210,
+              maxWidth: "80%",
+              height: "auto",
+              display: "block",
+              margin: "0 auto 8px",
+            }}
+          />
+          <div style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>
+            Secure card payment
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.95, marginTop: 4 }}>
+            Safe online payment, verified with 3-D Secure.
+          </div>
+          <div
+            style={{
+              margin: "10px auto 8px",
+              width: "fit-content",
+              borderRadius: 999,
+              border: "2px solid #10b981",
+              color: "#9cf7db",
+              padding: "6px 14px",
+              fontSize: 13,
+              fontWeight: 700,
+              lineHeight: 1,
+              boxShadow: "0 0 0 2px rgba(16,185,129,0.2), 0 0 18px rgba(16,185,129,0.35)",
+            }}
+          >
+            ● 3-D Secure enabled
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.95 }}>
+            Powered by edge+
+          </div>
+        </div>
 
         {enableWallets && (
           <div
