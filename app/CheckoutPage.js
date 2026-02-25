@@ -716,6 +716,7 @@ export default function CheckoutPage({
           </div>
 
           <div
+            className={payMode === "wallet" ? "walletModeWidget" : undefined}
             style={
               payMode === "wallet" && !walletReady
                 ? { opacity: 0.5, pointerEvents: "none" }
@@ -822,6 +823,11 @@ export default function CheckoutPage({
           processed by Getedge Payments Ltd.
         </p>
       </div>
+      <style jsx global>{`
+        .walletModeWidget .payButton {
+          display: none !important;
+        }
+      `}</style>
     </main>
   );
 }
