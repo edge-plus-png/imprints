@@ -1,9 +1,8 @@
 // app/CheckoutPage.js
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
 
 // Load NMI components only on the client
 const NmiPayments = dynamic(
@@ -15,21 +14,51 @@ const NmiThreeDSecure = dynamic(
   { ssr: false }
 );
 
-export default function CheckoutPage() {
-  const searchParams = useSearchParams();
-
+export default function CheckoutPage({ enableWallets = false }) {
   // Basic form state
-  const [amount, setAmount] = useState("1.00");
-  const [amountLocked, setAmountLocked] = useState(false);
+  const [amount, setAmount] = useState(() => {
+    if (typeof window === "undefined") return "1.00";
+    const qAmount = new URLSearchParams(window.location.search).get("amount");
+    if (qAmount && !Number.isNaN(parseFloat(qAmount))) return qAmount;
+    return "1.00";
+  });
+  const [amountLocked] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const qAmount = new URLSearchParams(window.location.search).get("amount");
+    return Boolean(qAmount && !Number.isNaN(parseFloat(qAmount)));
+  });
 
-  const [orderReference, setOrderReference] = useState("");
-  const [orderRefLocked, setOrderRefLocked] = useState(false);
+  const [orderReference, setOrderReference] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return (
+      new URLSearchParams(window.location.search).get("order_reference") || ""
+    );
+  });
+  const [orderRefLocked] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return Boolean(
+      new URLSearchParams(window.location.search).get("order_reference")
+    );
+  });
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("customer_name") || "";
+  });
+  const [email, setEmail] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return (
+      new URLSearchParams(window.location.search).get("customer_email") || ""
+    );
+  });
   const [address1, setAddress1] = useState("");
   const [city, setCity] = useState("");
-  const [postcode, setPostcode] = useState("");
+  const [postcode, setPostcode] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return (
+      new URLSearchParams(window.location.search).get("billing_postcode") || ""
+    );
+  });
   const [country] = useState("GB");
 
   // NMI / 3DS state
@@ -49,6 +78,39 @@ export default function CheckoutPage() {
   const redirectedRef = useRef(false);
 
   const tokenizationKey = process.env.NEXT_PUBLIC_NMI_TOKENIZATION_KEY || "";
+  const applePayMerchantId =
+    process.env.NEXT_PUBLIC_APPLE_PAY_MERCHANT_ID || undefined;
+  const applePayDisplayName =
+    process.env.NEXT_PUBLIC_APPLE_PAY_DISPLAY_NAME || "Imprints";
+  const googlePayMerchantId =
+    process.env.NEXT_PUBLIC_GOOGLE_PAY_MERCHANT_ID || undefined;
+  const googlePayEnvironment =
+    process.env.NEXT_PUBLIC_GOOGLE_PAY_ENVIRONMENT || "PRODUCTION";
+  const expressCheckoutConfig = {
+    amount: parseFloat(amount || "0").toFixed(2),
+    currency: "GBP",
+    ...(applePayMerchantId
+      ? {
+          applePay: {
+            merchantId: applePayMerchantId,
+            displayName: applePayDisplayName,
+            countryCode: "GB",
+            currencyCode: "GBP",
+          },
+        }
+      : {}),
+    ...(googlePayMerchantId
+      ? {
+          googlePay: {
+            merchantId: googlePayMerchantId,
+            environment:
+              googlePayEnvironment === "TEST" ? "TEST" : "PRODUCTION",
+            countryCode: "GB",
+            currencyCode: "GBP",
+          },
+        }
+      : {}),
+  };
 
   // -------------------------
   // Redirect helpers (ENV-driven)
@@ -102,34 +164,6 @@ export default function CheckoutPage() {
 
     window.location.assign(url.toString());
   }
-
-  // -------------------------
-  // Prefill from URL
-  // -------------------------
-  useEffect(() => {
-    if (!searchParams) return;
-
-    const qAmount = searchParams.get("amount");
-    if (qAmount && !Number.isNaN(parseFloat(qAmount))) {
-      setAmount(qAmount);
-      setAmountLocked(true);
-    }
-
-    const qOrderRef = searchParams.get("order_reference");
-    if (qOrderRef) {
-      setOrderReference(qOrderRef);
-      setOrderRefLocked(true);
-    }
-
-    const qName = searchParams.get("customer_name");
-    if (qName) setName(qName);
-
-    const qEmail = searchParams.get("customer_email");
-    if (qEmail) setEmail(qEmail);
-
-    const qPostcode = searchParams.get("billing_postcode");
-    if (qPostcode) setPostcode(qPostcode);
-  }, [searchParams]);
 
   // -------------------------
   // Pay button handler
@@ -245,6 +279,22 @@ export default function CheckoutPage() {
           Imprints – Secure card payment
         </h1>
 
+        {enableWallets && (
+          <div
+            style={{
+              marginBottom: 10,
+              padding: "8px 10px",
+              borderRadius: 6,
+              fontSize: 12,
+              backgroundColor: "#eff6ff",
+              border: "1px solid #93c5fd",
+              color: "#1e3a8a",
+            }}
+          >
+            Apple Pay and Google Pay are enabled on this checkout.
+          </div>
+        )}
+
         {/* Honeypot – hidden field */}
         <input
           type="text"
@@ -357,9 +407,12 @@ export default function CheckoutPage() {
             key={paymentsKey}
             tokenizationKey={tokenizationKey}
             layout="multiLine"
-            paymentMethods={["card"]}
+            paymentMethods={
+              enableWallets ? ["card", "apple-pay", "google-pay"] : ["card"]
+            }
             preSelectFirstMethod={true}
             payButtonText="Pay"
+            expressCheckoutConfig={expressCheckoutConfig}
             onChange={(data) => {
               const complete = data?.complete || false;
               setIsValid(complete);
