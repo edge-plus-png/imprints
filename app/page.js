@@ -15,12 +15,7 @@ function getFirstParam(params, key) {
 export default async function Page({ searchParams }) {
   const params = (await searchParams) || {};
   const walletsEnabled = process.env.ENABLE_WALLETS === "true";
-  const rolloutKey = process.env.WALLET_ROLLOUT_KEY || "";
-  const previewKeyFromUrl = getFirstParam(params, "wallet_preview");
-
-  const walletsForAll = walletsEnabled && !rolloutKey;
-  const walletsForPreview = walletsEnabled && rolloutKey === previewKeyFromUrl;
-  const enableWallets = walletsForAll || walletsForPreview;
+  const enableWallets = walletsEnabled;
 
   const qAmount = getFirstParam(params, "amount");
   const qOrderReference = getFirstParam(params, "order_reference");
