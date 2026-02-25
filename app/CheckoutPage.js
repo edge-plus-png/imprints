@@ -1,8 +1,9 @@
 // app/CheckoutPage.js
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 
 // Load NMI components only on the client
 const NmiPayments = dynamic(
@@ -15,50 +16,20 @@ const NmiThreeDSecure = dynamic(
 );
 
 export default function CheckoutPage({ enableWallets = false }) {
+  const searchParams = useSearchParams();
+
   // Basic form state
-  const [amount, setAmount] = useState(() => {
-    if (typeof window === "undefined") return "1.00";
-    const qAmount = new URLSearchParams(window.location.search).get("amount");
-    if (qAmount && !Number.isNaN(parseFloat(qAmount))) return qAmount;
-    return "1.00";
-  });
-  const [amountLocked] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const qAmount = new URLSearchParams(window.location.search).get("amount");
-    return Boolean(qAmount && !Number.isNaN(parseFloat(qAmount)));
-  });
+  const [amount, setAmount] = useState("1.00");
+  const [amountLocked, setAmountLocked] = useState(false);
 
-  const [orderReference, setOrderReference] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return (
-      new URLSearchParams(window.location.search).get("order_reference") || ""
-    );
-  });
-  const [orderRefLocked] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return Boolean(
-      new URLSearchParams(window.location.search).get("order_reference")
-    );
-  });
+  const [orderReference, setOrderReference] = useState("");
+  const [orderRefLocked, setOrderRefLocked] = useState(false);
 
-  const [name, setName] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return new URLSearchParams(window.location.search).get("customer_name") || "";
-  });
-  const [email, setEmail] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return (
-      new URLSearchParams(window.location.search).get("customer_email") || ""
-    );
-  });
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [address1, setAddress1] = useState("");
   const [city, setCity] = useState("");
-  const [postcode, setPostcode] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return (
-      new URLSearchParams(window.location.search).get("billing_postcode") || ""
-    );
-  });
+  const [postcode, setPostcode] = useState("");
   const [country] = useState("GB");
 
   // NMI / 3DS state
@@ -569,3 +540,30 @@ const inputStyle = {
   marginBottom: 4,
   boxSizing: "border-box",
 };
+  // -------------------------
+  // Prefill from URL
+  // -------------------------
+  useEffect(() => {
+    if (!searchParams) return;
+
+    const qAmount = searchParams.get("amount");
+    if (qAmount && !Number.isNaN(parseFloat(qAmount))) {
+      setAmount(qAmount);
+      setAmountLocked(true);
+    }
+
+    const qOrderRef = searchParams.get("order_reference");
+    if (qOrderRef) {
+      setOrderReference(qOrderRef);
+      setOrderRefLocked(true);
+    }
+
+    const qName = searchParams.get("customer_name");
+    if (qName) setName(qName);
+
+    const qEmail = searchParams.get("customer_email");
+    if (qEmail) setEmail(qEmail);
+
+    const qPostcode = searchParams.get("billing_postcode");
+    if (qPostcode) setPostcode(qPostcode);
+  }, [searchParams]);
