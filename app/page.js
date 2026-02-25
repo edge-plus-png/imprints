@@ -14,8 +14,7 @@ function getFirstParam(params, key) {
 
 export default async function Page({ searchParams }) {
   const params = (await searchParams) || {};
-  const walletsEnabled = process.env.ENABLE_WALLETS === "true";
-  const enableWallets = walletsEnabled;
+  const enableWallets = true;
 
   const qAmount = getFirstParam(params, "amount");
   const qOrderReference = getFirstParam(params, "order_reference");
