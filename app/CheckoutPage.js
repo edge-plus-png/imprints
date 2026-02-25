@@ -67,6 +67,7 @@ export default function CheckoutPage({
   const [sessionHash, setSessionHash] = useState("");
   // Force NmiPayments to reset when we need to clear the card form
   const [paymentsKey, setPaymentsKey] = useState(0);
+  const [walletMissingFields, setWalletMissingFields] = useState([]);
 
   const threeDSRef = useRef(null);
 
@@ -224,7 +225,11 @@ export default function CheckoutPage({
     threeDSRef.current.startThreeDSecure(paymentInfo);
   }
 
-  async function submitPaymentWithToken(token, threeDS) {
+  async function submitPaymentWithToken(
+    token,
+    threeDS,
+    { redirectOnFailure = true } = {}
+  ) {
     const [firstName, ...rest] = name.trim().split(" ");
     const lastName = rest.join(" ") || firstName;
     const response = await fetch("/api/process-payment", {
@@ -261,32 +266,56 @@ export default function CheckoutPage({
         ok: true,
         transactionId: data.transactionId || data.transaction_id,
       });
-      return true;
+      return { success: true, data };
     }
 
     const msg = data.error || "Payment failed";
     setStatus(msg);
-    redirectToResult({
-      ok: false,
-      errorCode: data.error_code || data.code || "gateway_decline",
-      transactionId: data.transactionId || data.transaction_id,
-    });
-    return false;
+    const errorCode = data.error_code || data.code || "gateway_decline";
+    if (redirectOnFailure) {
+      redirectToResult({
+        ok: false,
+        errorCode,
+        transactionId: data.transactionId || data.transaction_id,
+      });
+    }
+    return { success: false, data, error: msg, errorCode };
   }
 
   async function handleWalletPay(tokenFromWallet) {
     if (isProcessing || !payloadSignatureValid) return "Payment in progress.";
+    setStatus("");
+    setWalletMissingFields([]);
     if (!isValidAmountInput(amount)) return "Invalid amount.";
     if (!isCurrencyValid) return "Unsupported currency.";
-    if (!name || !email || !postcode) return "Please complete required fields.";
     if ((requireOrderReference || initialOrderRefLocked) && !orderReference)
       return "Order reference required.";
 
     setIsProcessing(true);
     try {
-      const ok = await submitPaymentWithToken(tokenFromWallet);
+      const result = await submitPaymentWithToken(tokenFromWallet, undefined, {
+        redirectOnFailure: false,
+      });
       setIsProcessing(false);
-      return ok ? true : "Payment failed";
+      if (result.success) return true;
+
+      const missingFields = detectWalletMissingFields({
+        error: result.error,
+        errorCode: result.errorCode,
+        values: { name, email, address1, address2, city, postcode, country },
+      });
+
+      if (missingFields.length > 0) {
+        setWalletMissingFields(missingFields);
+        setStatus("Please complete the missing details and retry wallet payment.");
+        return "Missing required fields";
+      }
+
+      redirectToResult({
+        ok: false,
+        errorCode: result.errorCode || "gateway_decline",
+      });
+      return "Payment failed";
     } catch (err) {
       console.error(err);
       setIsProcessing(false);
@@ -297,11 +326,9 @@ export default function CheckoutPage({
   }
 
   const [payMode, setPayMode] = useState(enableWallets ? "wallet" : "card");
-  const requiredCustomerFieldsValid = Boolean(name && email && postcode);
   const walletReady =
     isValidAmountInput(amount) &&
     isCurrencyValid &&
-    requiredCustomerFieldsValid &&
     !(requireOrderReference || initialOrderRefLocked ? !orderReference : false) &&
     payloadSignatureValid &&
     !isProcessing;
@@ -473,60 +500,144 @@ export default function CheckoutPage({
           style={inputStyle}
         />
 
-        <FieldLabel>Full name</FieldLabel>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={inputStyle}
-        />
+        {payMode === "card" && (
+          <>
+            <FieldLabel>Full name</FieldLabel>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              style={inputStyle}
+            />
 
-        <FieldLabel>Email</FieldLabel>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={inputStyle}
-        />
+            <FieldLabel>Email</FieldLabel>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              style={inputStyle}
+            />
 
-        <FieldLabel>Address</FieldLabel>
-        <input
-          type="text"
-          value={address1}
-          onChange={(e) => setAddress1(e.target.value)}
-          style={inputStyle}
-        />
-        <input
-          type="text"
-          placeholder="Address line 2"
-          value={address2}
-          onChange={(e) => setAddress2(e.target.value)}
-          style={inputStyle}
-        />
+            <FieldLabel>Address</FieldLabel>
+            <input
+              type="text"
+              value={address1}
+              onChange={(e) => setAddress1(e.target.value)}
+              style={inputStyle}
+            />
+            <input
+              type="text"
+              placeholder="Address line 2"
+              value={address2}
+              onChange={(e) => setAddress2(e.target.value)}
+              style={inputStyle}
+            />
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            type="text"
-            placeholder="Town / City"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-            style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-          />
-          <input
-            type="text"
-            placeholder="Postcode"
-            value={postcode}
-            onChange={(e) => setPostcode(e.target.value)}
-            style={{ ...inputStyle, marginBottom: 0, width: 130 }}
-          />
-        </div>
-        <input
-          type="text"
-          placeholder="Country (e.g. GB)"
-          value={country}
-          onChange={(e) => setCountry(e.target.value.toUpperCase())}
-          style={{ ...inputStyle, marginTop: 8 }}
-        />
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                placeholder="Town / City"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+              />
+              <input
+                type="text"
+                placeholder="Postcode"
+                value={postcode}
+                onChange={(e) => setPostcode(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0, width: 130 }}
+              />
+            </div>
+            <input
+              type="text"
+              placeholder="Country (e.g. GB)"
+              value={country}
+              onChange={(e) => setCountry(e.target.value.toUpperCase())}
+              style={{ ...inputStyle, marginTop: 8 }}
+            />
+          </>
+        )}
+
+        {payMode === "wallet" && (
+          <>
+            <p style={{ marginTop: 8, marginBottom: 8, fontSize: 12, color: "#6b7280" }}>
+              Name, email and address are requested from Apple Pay / Google Pay.
+            </p>
+            {walletMissingFields.length > 0 && (
+              <div
+                style={{
+                  marginBottom: 8,
+                  padding: "10px 10px 8px",
+                  border: "1px solid #f59e0b",
+                  background: "#fffbeb",
+                  borderRadius: 8,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                  Complete missing details
+                </div>
+                {walletMissingFields.includes("name") && (
+                  <input
+                    type="text"
+                    placeholder="Full name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    style={inputStyle}
+                  />
+                )}
+                {walletMissingFields.includes("email") && (
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    style={inputStyle}
+                  />
+                )}
+                {walletMissingFields.includes("address1") && (
+                  <input
+                    type="text"
+                    placeholder="Address line 1"
+                    value={address1}
+                    onChange={(e) => setAddress1(e.target.value)}
+                    style={inputStyle}
+                  />
+                )}
+                {walletMissingFields.includes("city") && (
+                  <input
+                    type="text"
+                    placeholder="Town / City"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    style={inputStyle}
+                  />
+                )}
+                {walletMissingFields.includes("postcode") && (
+                  <input
+                    type="text"
+                    placeholder="Postcode"
+                    value={postcode}
+                    onChange={(e) => setPostcode(e.target.value)}
+                    style={inputStyle}
+                  />
+                )}
+                {walletMissingFields.includes("country") && (
+                  <input
+                    type="text"
+                    placeholder="Country (e.g. GB)"
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value.toUpperCase())}
+                    style={inputStyle}
+                  />
+                )}
+                <p style={{ margin: "2px 0 0", fontSize: 11, color: "#92400e" }}>
+                  Retry wallet payment after entering the missing fields.
+                </p>
+              </div>
+            )}
+          </>
+        )}
 
         {status && (
           <div
@@ -567,7 +678,10 @@ export default function CheckoutPage({
           >
             <button
               type="button"
-              onClick={() => setPayMode("wallet")}
+              onClick={() => {
+                setPayMode("wallet");
+                setWalletMissingFields([]);
+              }}
               disabled={!enableWallets}
               style={modeButtonStyle(payMode === "wallet")}
             >
@@ -575,7 +689,10 @@ export default function CheckoutPage({
             </button>
             <button
               type="button"
-              onClick={() => setPayMode("card")}
+              onClick={() => {
+                setPayMode("card");
+                setWalletMissingFields([]);
+              }}
               style={modeButtonStyle(payMode === "card")}
             >
               Pay by card
@@ -689,7 +806,7 @@ export default function CheckoutPage({
 
         {payMode === "wallet" && !walletReady && (
           <p style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
-            Complete amount and required details to enable wallet payment.
+            Complete amount, currency and order reference to enable wallet payment.
           </p>
         )}
 
@@ -760,4 +877,22 @@ function modeButtonStyle(active) {
     background: active ? "#111827" : "transparent",
     color: active ? "#ffffff" : "#374151",
   };
+}
+
+function detectWalletMissingFields({ error, errorCode, values }) {
+  const text = `${errorCode || ""} ${error || ""}`.toLowerCase();
+  const missing = [];
+
+  const maybeAdd = (field, pattern) => {
+    if (pattern.test(text) && !String(values[field] || "").trim()) missing.push(field);
+  };
+
+  maybeAdd("name", /name|first_name|last_name/);
+  maybeAdd("email", /email/);
+  maybeAdd("address1", /address|address1|street/);
+  maybeAdd("city", /city|town/);
+  maybeAdd("postcode", /postal|postcode|zip/);
+  maybeAdd("country", /country/);
+
+  return [...new Set(missing)];
 }
