@@ -1,9 +1,8 @@
 // app/CheckoutPage.js
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
 
 // Load NMI components only on the client
 const NmiPayments = dynamic(
@@ -15,21 +14,28 @@ const NmiThreeDSecure = dynamic(
   { ssr: false }
 );
 
-export default function CheckoutPage({ enableWallets = false }) {
-  const searchParams = useSearchParams();
-
+export default function CheckoutPage({
+  enableWallets = false,
+  initialAmount = "1.00",
+  initialAmountLocked = false,
+  initialOrderReference = "",
+  initialOrderRefLocked = false,
+  initialName = "",
+  initialEmail = "",
+  initialPostcode = "",
+}) {
   // Basic form state
-  const [amount, setAmount] = useState("1.00");
-  const [amountLocked, setAmountLocked] = useState(false);
+  const [amount, setAmount] = useState(initialAmount);
+  const [amountLocked] = useState(initialAmountLocked);
 
-  const [orderReference, setOrderReference] = useState("");
-  const [orderRefLocked, setOrderRefLocked] = useState(false);
+  const [orderReference, setOrderReference] = useState(initialOrderReference);
+  const [orderRefLocked] = useState(initialOrderRefLocked);
 
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(initialName);
+  const [email, setEmail] = useState(initialEmail);
   const [address1, setAddress1] = useState("");
   const [city, setCity] = useState("");
-  const [postcode, setPostcode] = useState("");
+  const [postcode, setPostcode] = useState(initialPostcode);
   const [country] = useState("GB");
 
   // NMI / 3DS state
@@ -540,30 +546,3 @@ const inputStyle = {
   marginBottom: 4,
   boxSizing: "border-box",
 };
-  // -------------------------
-  // Prefill from URL
-  // -------------------------
-  useEffect(() => {
-    if (!searchParams) return;
-
-    const qAmount = searchParams.get("amount");
-    if (qAmount && !Number.isNaN(parseFloat(qAmount))) {
-      setAmount(qAmount);
-      setAmountLocked(true);
-    }
-
-    const qOrderRef = searchParams.get("order_reference");
-    if (qOrderRef) {
-      setOrderReference(qOrderRef);
-      setOrderRefLocked(true);
-    }
-
-    const qName = searchParams.get("customer_name");
-    if (qName) setName(qName);
-
-    const qEmail = searchParams.get("customer_email");
-    if (qEmail) setEmail(qEmail);
-
-    const qPostcode = searchParams.get("billing_postcode");
-    if (qPostcode) setPostcode(qPostcode);
-  }, [searchParams]);
