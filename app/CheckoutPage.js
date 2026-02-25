@@ -70,6 +70,7 @@ export default function CheckoutPage({
   const [walletMissingFields, setWalletMissingFields] = useState([]);
 
   const threeDSRef = useRef(null);
+  const lastWalletTokenRef = useRef("");
 
   // ✅ Redirect guard (prevents double redirects)
   const redirectedRef = useRef(false);
@@ -308,6 +309,7 @@ export default function CheckoutPage({
       if (missingFields.length > 0) {
         setWalletMissingFields(missingFields);
         setStatus("Please complete the missing details and retry wallet payment.");
+        lastWalletTokenRef.current = "";
         return "Missing required fields";
       }
 
@@ -315,12 +317,14 @@ export default function CheckoutPage({
         ok: false,
         errorCode: result.errorCode || "gateway_decline",
       });
+      lastWalletTokenRef.current = "";
       return "Payment failed";
     } catch (err) {
       console.error(err);
       setIsProcessing(false);
       setStatus("Error processing payment.");
       redirectToResult({ ok: false, errorCode: "server_error" });
+      lastWalletTokenRef.current = "";
       return "Error processing payment";
     }
   }
@@ -735,11 +739,20 @@ export default function CheckoutPage({
               preSelectFirstMethod={true}
               payButtonText="Pay"
               expressCheckoutConfig={expressCheckoutConfig}
-              onPay={payMode === "wallet" ? handleWalletPay : undefined}
               onChange={(data) => {
                 const complete = data?.complete || false;
                 setIsValid(complete);
-                if (complete && data?.token) setPaymentToken(data.token);
+                if (complete && data?.token) {
+                  setPaymentToken(data.token);
+                  if (
+                    payMode === "wallet" &&
+                    walletReady &&
+                    data.token !== lastWalletTokenRef.current
+                  ) {
+                    lastWalletTokenRef.current = data.token;
+                    void handleWalletPay(data.token);
+                  }
+                }
               }}
             />
           </div>
@@ -823,11 +836,6 @@ export default function CheckoutPage({
           processed by Getedge Payments Ltd.
         </p>
       </div>
-      <style jsx global>{`
-        .walletModeWidget .payButton {
-          display: none !important;
-        }
-      `}</style>
     </main>
   );
 }
