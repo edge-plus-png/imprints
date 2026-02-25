@@ -16,27 +16,46 @@ const NmiThreeDSecure = dynamic(
 
 export default function CheckoutPage({
   enableWallets = false,
+  payloadSignatureValid = true,
   initialAmount = "1.00",
   initialAmountLocked = false,
+  initialCurrency = "GBP",
+  initialCurrencyLocked = false,
   initialOrderReference = "",
   initialOrderRefLocked = false,
   initialName = "",
   initialEmail = "",
+  initialAddress1 = "",
+  initialAddress2 = "",
+  initialCity = "",
   initialPostcode = "",
+  initialCountry = "GB",
+  initialCustomerId = "",
 }) {
   // Basic form state
   const [amount, setAmount] = useState(initialAmount);
   const [amountLocked] = useState(initialAmountLocked);
+  const [currency, setCurrency] = useState(initialCurrency || "GBP");
+  const [currencyLocked] = useState(initialCurrencyLocked);
 
   const [orderReference, setOrderReference] = useState(initialOrderReference);
   const [orderRefLocked] = useState(initialOrderRefLocked);
+  const [customerId] = useState(initialCustomerId);
 
   const [name, setName] = useState(initialName);
   const [email, setEmail] = useState(initialEmail);
-  const [address1, setAddress1] = useState("");
-  const [city, setCity] = useState("");
+  const [address1, setAddress1] = useState(initialAddress1);
+  const [address2, setAddress2] = useState(initialAddress2);
+  const [city, setCity] = useState(initialCity);
   const [postcode, setPostcode] = useState(initialPostcode);
-  const [country] = useState("GB");
+  const [country, setCountry] = useState((initialCountry || "GB").toUpperCase());
+  const requireOrderReference =
+    process.env.NEXT_PUBLIC_REQUIRE_ORDER_REFERENCE === "true";
+  const supportedCurrencies = ["GBP"];
+  const isCurrencyValid = supportedCurrencies.includes(
+    (currency || "").toUpperCase()
+  );
+  const normalizedCurrency = (currency || "GBP").toUpperCase();
 
   // NMI / 3DS state
   const [paymentToken, setPaymentToken] = useState("");
@@ -63,16 +82,17 @@ export default function CheckoutPage({
     process.env.NEXT_PUBLIC_GOOGLE_PAY_MERCHANT_ID || undefined;
   const googlePayEnvironment =
     process.env.NEXT_PUBLIC_GOOGLE_PAY_ENVIRONMENT || "PRODUCTION";
+  const safeAmount = getSafeAmount(amount);
   const expressCheckoutConfig = {
-    amount: parseFloat(amount || "0").toFixed(2),
-    currency: "GBP",
+    amount: safeAmount,
+    currency: normalizedCurrency,
     ...(applePayMerchantId
       ? {
           applePay: {
             merchantId: applePayMerchantId,
             displayName: applePayDisplayName,
             countryCode: "GB",
-            currencyCode: "GBP",
+            currencyCode: normalizedCurrency,
           },
         }
       : {}),
@@ -83,7 +103,7 @@ export default function CheckoutPage({
             environment:
               googlePayEnvironment === "TEST" ? "TEST" : "PRODUCTION",
             countryCode: "GB",
-            currencyCode: "GBP",
+            currencyCode: normalizedCurrency,
           },
         }
       : {}),
@@ -105,17 +125,10 @@ export default function CheckoutPage({
     const envStagingFailure = process.env.NEXT_PUBLIC_REDIRECT_FAILURE_STAGING || "";
     const envProdSuccess = process.env.NEXT_PUBLIC_REDIRECT_SUCCESS_PROD || "";
     const envProdFailure = process.env.NEXT_PUBLIC_REDIRECT_FAILURE_PROD || "";
-
-    // Fallbacks (in case env vars aren’t set yet)
-    const fallbackStagingSuccess = "https://imprints.hatched.agency/portal/?order=200";
-    const fallbackStagingFailure = "https://imprints.hatched.agency/portal/?order=500";
-    const fallbackProdSuccess = "https://imprintstaunton.co.uk/portal/?order=200";
-    const fallbackProdFailure = "https://imprintstaunton.co.uk/portal/?order=500";
-
-    const stagingSuccess = envStagingSuccess || fallbackStagingSuccess;
-    const stagingFailure = envStagingFailure || fallbackStagingFailure;
-    const prodSuccess = envProdSuccess || fallbackProdSuccess;
-    const prodFailure = envProdFailure || fallbackProdFailure;
+    const stagingSuccess = envStagingSuccess;
+    const stagingFailure = envStagingFailure;
+    const prodSuccess = envProdSuccess;
+    const prodFailure = envProdFailure;
 
     const isProd = mode === "production";
 
@@ -124,20 +137,26 @@ export default function CheckoutPage({
   }
 
   // ✅ Redirect only once
-  function redirectToResult({ ok, transactionId, errorMessage }) {
+  function redirectToResult({ ok, transactionId, errorCode }) {
     if (redirectedRef.current) return;
     redirectedRef.current = true;
 
     const base = getRedirectBase(ok ? "success" : "failure");
+    if (!base) {
+      setStatus("Redirect URL is not configured.");
+      return;
+    }
     const url = new URL(base);
 
-    // Keep Adam's ?order=200/500, add ours alongside it
-    url.searchParams.set("status", ok ? "approved" : "declined");
+    url.searchParams.set("status", ok ? "success" : "failed");
     if (orderReference) url.searchParams.set("order_reference", orderReference);
-    if (transactionId) url.searchParams.set("transaction_id", String(transactionId));
-    if (amount) url.searchParams.set("amount", String(parseFloat(amount).toFixed(2)));
-    url.searchParams.set("currency", "GBP");
-    if (!ok && errorMessage) url.searchParams.set("reason", errorMessage.slice(0, 120));
+    if (ok && transactionId)
+      url.searchParams.set("transaction_id", String(transactionId));
+    if (ok) {
+      url.searchParams.set("amount", safeAmount);
+      url.searchParams.set("currency", normalizedCurrency);
+    }
+    if (!ok && errorCode) url.searchParams.set("error_code", errorCode.slice(0, 80));
 
     window.location.assign(url.toString());
   }
@@ -146,6 +165,7 @@ export default function CheckoutPage({
   // Pay button handler
   // -------------------------
   async function handlePay() {
+    if (isProcessing || !payloadSignatureValid) return;
     setStatus("");
 
     if (!isValid || !paymentToken) {
@@ -153,13 +173,23 @@ export default function CheckoutPage({
       return;
     }
 
-    if (!amount || parseFloat(amount) <= 0) {
-      setStatus("Enter a valid amount.");
+    if (!isValidAmountInput(amount)) {
+      setStatus("Amount must be greater than 0 and use up to 2 decimal places.");
+      return;
+    }
+
+    if (!isCurrencyValid) {
+      setStatus("Unsupported currency.");
       return;
     }
 
     if (!name || !email || !postcode) {
       setStatus("Please complete the required fields.");
+      return;
+    }
+
+    if ((requireOrderReference || initialOrderRefLocked) && !orderReference) {
+      setStatus("Order reference is required.");
       return;
     }
 
@@ -174,8 +204,8 @@ export default function CheckoutPage({
 
     const paymentInfo = {
       paymentToken,
-      currency: "GBP",
-      amount: parseFloat(amount).toFixed(2),
+      currency: normalizedCurrency,
+      amount: safeAmount,
       firstName,
       lastName,
       email,
@@ -193,6 +223,88 @@ export default function CheckoutPage({
     setIsProcessing(true);
     threeDSRef.current.startThreeDSecure(paymentInfo);
   }
+
+  async function submitPaymentWithToken(token, threeDS) {
+    const [firstName, ...rest] = name.trim().split(" ");
+    const lastName = rest.join(" ") || firstName;
+    const response = await fetch("/api/process-payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paymentToken: token,
+        amount: parseFloat(safeAmount),
+        currency: normalizedCurrency,
+        firstName,
+        lastName,
+        email,
+        address1,
+        address2,
+        city,
+        postcode,
+        country,
+        customer_id: customerId,
+        order_reference: orderReference,
+        cardHolderAuth: threeDS?.cardHolderAuth,
+        cavv: threeDS?.cavv,
+        directoryServerId: threeDS?.directoryServerId,
+        eci: threeDS?.eci,
+        threeDsVersion: threeDS?.threeDsVersion,
+        xid: threeDS?.xid,
+        session_hash: sessionHash,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.success) {
+      setStatus("Payment successful");
+      redirectToResult({
+        ok: true,
+        transactionId: data.transactionId || data.transaction_id,
+      });
+      return true;
+    }
+
+    const msg = data.error || "Payment failed";
+    setStatus(msg);
+    redirectToResult({
+      ok: false,
+      errorCode: data.error_code || data.code || "gateway_decline",
+      transactionId: data.transactionId || data.transaction_id,
+    });
+    return false;
+  }
+
+  async function handleWalletPay(tokenFromWallet) {
+    if (isProcessing || !payloadSignatureValid) return "Payment in progress.";
+    if (!isValidAmountInput(amount)) return "Invalid amount.";
+    if (!isCurrencyValid) return "Unsupported currency.";
+    if (!name || !email || !postcode) return "Please complete required fields.";
+    if ((requireOrderReference || initialOrderRefLocked) && !orderReference)
+      return "Order reference required.";
+
+    setIsProcessing(true);
+    try {
+      const ok = await submitPaymentWithToken(tokenFromWallet);
+      setIsProcessing(false);
+      return ok ? true : "Payment failed";
+    } catch (err) {
+      console.error(err);
+      setIsProcessing(false);
+      setStatus("Error processing payment.");
+      redirectToResult({ ok: false, errorCode: "server_error" });
+      return "Error processing payment";
+    }
+  }
+
+  const [payMode, setPayMode] = useState(enableWallets ? "wallet" : "card");
+  const requiredCustomerFieldsValid = Boolean(name && email && postcode);
+  const walletReady =
+    isValidAmountInput(amount) &&
+    isCurrencyValid &&
+    requiredCustomerFieldsValid &&
+    !(requireOrderReference || initialOrderRefLocked ? !orderReference : false) &&
+    payloadSignatureValid &&
+    !isProcessing;
 
   const isSuccess = status === "Payment successful";
 
@@ -300,19 +412,19 @@ export default function CheckoutPage({
           </div>
         </div>
 
-        {enableWallets && (
+        {!payloadSignatureValid && (
           <div
             style={{
               marginBottom: 10,
               padding: "8px 10px",
               borderRadius: 6,
-              fontSize: 12,
-              backgroundColor: "#eff6ff",
-              border: "1px solid #93c5fd",
-              color: "#1e3a8a",
+              fontSize: 13,
+              backgroundColor: "#fef2f2",
+              border: "1px solid #ef4444",
+              color: "#b91c1c",
             }}
           >
-            Apple Pay and Google Pay are enabled on this checkout.
+            Invalid payment link.
           </div>
         )}
 
@@ -334,6 +446,23 @@ export default function CheckoutPage({
           readOnly={amountLocked}
           style={inputStyle}
         />
+        <div style={{ fontSize: 12, color: "#374151", marginBottom: 6 }}>
+          You&apos;re paying £{safeAmount}
+        </div>
+
+        <FieldLabel>Currency</FieldLabel>
+        <select
+          value={normalizedCurrency}
+          onChange={(e) => setCurrency(e.target.value)}
+          disabled={currencyLocked}
+          style={inputStyle}
+        >
+          {supportedCurrencies.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
 
         <FieldLabel>Order reference</FieldLabel>
         <input
@@ -367,6 +496,13 @@ export default function CheckoutPage({
           onChange={(e) => setAddress1(e.target.value)}
           style={inputStyle}
         />
+        <input
+          type="text"
+          placeholder="Address line 2"
+          value={address2}
+          onChange={(e) => setAddress2(e.target.value)}
+          style={inputStyle}
+        />
 
         <div style={{ display: "flex", gap: 8 }}>
           <input
@@ -384,6 +520,13 @@ export default function CheckoutPage({
             style={{ ...inputStyle, marginBottom: 0, width: 130 }}
           />
         </div>
+        <input
+          type="text"
+          placeholder="Country (e.g. GB)"
+          value={country}
+          onChange={(e) => setCountry(e.target.value.toUpperCase())}
+          style={{ ...inputStyle, marginTop: 8 }}
+        />
 
         {status && (
           <div
@@ -402,7 +545,7 @@ export default function CheckoutPage({
           </div>
         )}
 
-        {/* Card input + 3DS */}
+        {/* Gold Standard payment box */}
         <div
           style={{
             marginTop: 12,
@@ -414,32 +557,74 @@ export default function CheckoutPage({
         >
           <div
             style={{
+              display: "inline-flex",
+              gap: 6,
+              marginBottom: 10,
+              background: "#e5e7eb",
+              borderRadius: 999,
+              padding: 4,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setPayMode("wallet")}
+              disabled={!enableWallets}
+              style={modeButtonStyle(payMode === "wallet")}
+            >
+              Wallet
+            </button>
+            <button
+              type="button"
+              onClick={() => setPayMode("card")}
+              style={modeButtonStyle(payMode === "card")}
+            >
+              Pay by card
+            </button>
+          </div>
+
+          <div
+            style={{
               display: "flex",
               justifyContent: "space-between",
               marginBottom: 8,
               fontSize: 13,
             }}
           >
-            <strong>Card details</strong>
-            <span style={{ color: "#6b7280" }}>Visa · Mastercard · Amex</span>
+            <strong>{payMode === "wallet" ? "Wallet" : "Card details"}</strong>
+            <span style={{ color: "#6b7280" }}>
+              {payMode === "wallet"
+                ? "Apple Pay · Google Pay"
+                : "Visa · Mastercard · Amex"}
+            </span>
           </div>
 
-          <NmiPayments
-            key={paymentsKey}
-            tokenizationKey={tokenizationKey}
-            layout="multiLine"
-            paymentMethods={
-              enableWallets ? ["card", "apple-pay", "google-pay"] : ["card"]
+          <div
+            style={
+              payMode === "wallet" && !walletReady
+                ? { opacity: 0.5, pointerEvents: "none" }
+                : undefined
             }
-            preSelectFirstMethod={true}
-            payButtonText="Pay"
-            expressCheckoutConfig={expressCheckoutConfig}
-            onChange={(data) => {
-              const complete = data?.complete || false;
-              setIsValid(complete);
-              if (complete && data?.token) setPaymentToken(data.token);
-            }}
-          />
+          >
+            <NmiPayments
+              key={paymentsKey}
+              tokenizationKey={tokenizationKey}
+              layout="multiLine"
+              paymentMethods={
+                payMode === "wallet" && enableWallets
+                  ? ["apple-pay", "google-pay"]
+                  : ["card"]
+              }
+              preSelectFirstMethod={true}
+              payButtonText="Pay"
+              expressCheckoutConfig={expressCheckoutConfig}
+              onPay={payMode === "wallet" ? handleWalletPay : undefined}
+              onChange={(data) => {
+                const complete = data?.complete || false;
+                setIsValid(complete);
+                if (complete && data?.token) setPaymentToken(data.token);
+              }}
+            />
+          </div>
 
           <NmiThreeDSecure
             ref={threeDSRef}
@@ -447,63 +632,8 @@ export default function CheckoutPage({
             modal={true}
             onComplete={async (result) => {
               try {
-                const [firstName, ...rest] = name.trim().split(" ");
-                const lastName = rest.join(" ") || firstName;
-
-                const response = await fetch("/api/process-payment", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    paymentToken,
-                    amount: parseFloat(amount),
-                    firstName,
-                    lastName,
-                    email,
-                    address1,
-                    city,
-                    postcode,
-                    country,
-                    order_reference: orderReference,
-
-                    cardHolderAuth: result.cardHolderAuth,
-                    cavv: result.cavv,
-                    directoryServerId: result.directoryServerId,
-                    eci: result.eci,
-                    threeDsVersion: result.threeDsVersion,
-                    xid: result.xid,
-
-                    session_hash: sessionHash,
-                  }),
-                });
-
-                const data = await response.json();
+                await submitPaymentWithToken(paymentToken, result);
                 setIsProcessing(false);
-
-                if (data.success) {
-                  setStatus("Payment successful");
-
-                  redirectToResult({
-                    ok: true,
-                    transactionId: data.transactionId || data.transaction_id,
-                  });
-
-                  // Optional: cleanup in case redirect ever gets blocked
-                  setAddress1("");
-                  setCity("");
-                  setPaymentToken("");
-                  setIsValid(false);
-                  setSessionHash("");
-                  setPaymentsKey((k) => k + 1);
-                } else {
-                  const msg = data.error || "Payment failed";
-                  setStatus(msg);
-
-                  redirectToResult({
-                    ok: false,
-                    errorMessage: msg,
-                    transactionId: data.transactionId || data.transaction_id,
-                  });
-                }
               } catch (err) {
                 console.error(err);
                 setIsProcessing(false);
@@ -511,7 +641,7 @@ export default function CheckoutPage({
 
                 redirectToResult({
                   ok: false,
-                  errorMessage: "error",
+                  errorCode: "server_error",
                 });
               }
             }}
@@ -521,30 +651,47 @@ export default function CheckoutPage({
 
               redirectToResult({
                 ok: false,
-                errorMessage: "3ds_cancelled",
+                errorCode: "3ds_cancelled",
               });
             }}
           />
         </div>
 
-        <button
-          onClick={handlePay}
-          disabled={!isValid || !paymentToken}
-          style={{
-            width: "100%",
-            marginTop: 14,
-            padding: "10px 12px",
-            borderRadius: 999,
-            border: "none",
-            fontWeight: 600,
-            fontSize: 15,
-            cursor: !isValid || !paymentToken ? "not-allowed" : "pointer",
-            backgroundColor: !isValid || !paymentToken ? "#d1d5db" : "#16a34a",
-            color: !isValid || !paymentToken ? "#6b7280" : "#ffffff",
-          }}
-        >
-          Verify &amp; pay securely
-        </button>
+        {payMode === "card" && (
+          <button
+            onClick={handlePay}
+            disabled={!isValid || !paymentToken || isProcessing || !payloadSignatureValid}
+            style={{
+              width: "100%",
+              marginTop: 14,
+              padding: "10px 12px",
+              borderRadius: 999,
+              border: "none",
+              fontWeight: 600,
+              fontSize: 15,
+              cursor:
+                !isValid || !paymentToken || isProcessing || !payloadSignatureValid
+                  ? "not-allowed"
+                  : "pointer",
+              backgroundColor:
+                !isValid || !paymentToken || isProcessing || !payloadSignatureValid
+                  ? "#d1d5db"
+                  : "#16a34a",
+              color:
+                !isValid || !paymentToken || isProcessing || !payloadSignatureValid
+                  ? "#6b7280"
+                  : "#ffffff",
+            }}
+          >
+            Pay £{safeAmount}
+          </button>
+        )}
+
+        {payMode === "wallet" && !walletReady && (
+          <p style={{ marginTop: 10, fontSize: 12, color: "#6b7280" }}>
+            Complete amount and required details to enable wallet payment.
+          </p>
+        )}
 
         <p
           style={{
@@ -590,3 +737,27 @@ const inputStyle = {
   marginBottom: 4,
   boxSizing: "border-box",
 };
+
+function isValidAmountInput(value) {
+  const trimmed = String(value || "").trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return false;
+  return Number(trimmed) > 0;
+}
+
+function getSafeAmount(value) {
+  if (!isValidAmountInput(value)) return "0.00";
+  return Number(value).toFixed(2);
+}
+
+function modeButtonStyle(active) {
+  return {
+    border: "none",
+    borderRadius: 999,
+    padding: "6px 12px",
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 700,
+    background: active ? "#111827" : "transparent",
+    color: active ? "#ffffff" : "#374151",
+  };
+}

@@ -82,13 +82,16 @@ export async function POST(request) {
     const {
       paymentToken,
       amount,
+      currency,
       firstName,
       lastName,
       email,
       address1,
+      address2,
       city,
       postcode,
       country,
+      customer_id,
       order_reference,
       cardHolderAuth,
       cavv,
@@ -133,7 +136,7 @@ export async function POST(request) {
     params.append("security_key", securityKey);
     params.append("type", "sale");
     params.append("amount", Number(amount).toFixed(2));
-    params.append("currency", "GBP");
+    params.append("currency", (currency || "GBP").toUpperCase());
     params.append("payment_token", paymentToken);
 
     if (order_reference) params.append("orderid", order_reference);
@@ -142,9 +145,11 @@ export async function POST(request) {
     if (lastName) params.append("last_name", lastName);
     if (email) params.append("email", email);
     if (address1) params.append("address1", address1);
+    if (address2) params.append("address2", address2);
     if (city) params.append("city", city);
     if (postcode) params.append("postalcode", postcode);
     if (country) params.append("country", country);
+    if (customer_id) params.append("customer_vault_id", customer_id);
 
     // 3DS
     if (cardHolderAuth)
@@ -188,7 +193,7 @@ export async function POST(request) {
 
       data: {
         amount: Number(amount),
-        currency: "GBP",
+        currency: (currency || "GBP").toUpperCase(),
 
         // canonical
         orderReference: order_reference || null,
@@ -205,6 +210,7 @@ export async function POST(request) {
           city,
           postcode,
           country,
+          customer_id,
         },
 
         // raw gateway response for debugging / reconciliation
