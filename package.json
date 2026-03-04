@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "node scripts/patch-nmi-googlepay.mjs"
   },
   "dependencies": {
     "@nmipayments/nmi-pay-react": "^1.0.0-beta.3",
