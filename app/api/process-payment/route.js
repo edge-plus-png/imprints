@@ -36,11 +36,21 @@ async function sendWebhooks(event) {
           headers["X-EdgePlus-Signature"] = signature;
         }
 
-        await fetch(url, {
+        const response = await fetch(url, {
           method: "POST",
           headers,
           body,
         });
+
+        if (!response.ok) {
+          const responseText = await response.text().catch(() => "");
+          console.error("Webhook POST returned non-2xx", {
+            url,
+            status: response.status,
+            statusText: response.statusText,
+            body: responseText.slice(0, 500),
+          });
+        }
       } catch (err) {
         console.error("Webhook POST failed for", url, err);
       }
