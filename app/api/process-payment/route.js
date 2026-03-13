@@ -36,6 +36,11 @@ async function sendWebhooks(event) {
           headers["X-EdgePlus-Signature"] = signature;
         }
 
+        console.log("Webhook POST payload", {
+          url,
+          body: event,
+        });
+
         const response = await fetch(url, {
           method: "POST",
           headers,
